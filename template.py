@@ -76,8 +76,18 @@ def extract_features(eeg_path, offset_seconds=0.0):
             # Relative band power (new feature)
             relative_power = ( band_power / total_power if total_power > 0 else 0)
             features.append(relative_power)
+            
 
-            #features.append(np.log1p(np.sum(psd[mask])))           #logaritme maakt verschillen in waarden minder extreem
+        #NIEUWE SPECTRAL ENTROPY
+        if total_power > 0:
+          normalized_psd = psd[total_mask] / total_power
+          spectral_entropy = -np.sum(normalized_psd * np.log(normalized_psd + 1e-12))
+          spectral_entropy /= np.log(len(normalized_psd))
+        else:
+          spectral_entropy = 0
+        features.append(spectral_entropy)
+
+            #features.append(np.log1p(np.sum(psd[mask])))          
     return np.asarray(features, dtype=np.float32)
 
 
