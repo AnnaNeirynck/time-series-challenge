@@ -41,7 +41,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
     segment = frame.iloc[start:end][channels].to_numpy(dtype=np.float64)
 
     features = []
-    for j in range(len(channels)):
+    for j in range(len(channels)):    #ieder kanaal afzonderlijk afgaan
         x = segment[:, j]
         if not np.isfinite(x).any():
             x = np.zeros_like(x)
@@ -50,17 +50,31 @@ def extract_features(eeg_path, offset_seconds=0.0):
             x = np.where(np.isfinite(x), x, fill)
         x = np.clip(x, -1000, 1000)
         features.extend([np.mean(x), np.std(x), np.ptp(x)])
+                #np.ptp is piek tot piek amplitude 
+
+        ###NIEUWE HJORTH FEATURES
+        activity= np.var(x)
+        dx=np.diff(x)
+        ddx=np.diff(dx)
+        var_dx=np.var(dx)
+        var_ddx=np.var(ddx)
+        mobility = ( np.sqrt(var_dx / activity) if activity > 0 else 0)
+        mobility_derivative = (np.sqrt(var_ddx / var_dx) if var_dx > 0 else 0)
+        complexity = (mobility_derivative / mobility if mobility > 0 else 0)
+        features.extend([activity,mobility,complexity])
+
+
         frequencies, psd = welch(x, fs=FS, nperseg=min(512, len(x)))
         for low, high in BANDS:
             mask = (frequencies >= low) & (frequencies < high)
-            features.append(np.log1p(np.sum(psd[mask])))
+            features.append(np.log1p(np.sum(psd[mask])))           #logaritme maakt verschillen in waarden minder extreem
     return np.asarray(features, dtype=np.float32)
 
 
-def build_features(metadata, eeg_folder, is_train=True):
-    X = []
-    for i, row in enumerate(metadata.itertuples(index=False)):
-        eeg_path = eeg_folder / f"{row.eeg_id}.parquet"
+def build_features(metadata, eeg_folder, is_train=True):           #1EEG fragment omgezet naar 70 features
+    X = []                                                         #matrix --> rij is een trainingsvoorbeeld   
+    for i, row in enumerate(metadata.itertuples(index=False)):     #           kolom is een feature
+        eeg_path = eeg_folder / f"{row.eeg_id}.parquet"            # = input voor ons model 
         offset = row.eeg_label_offset_seconds if is_train else 0.0
         X.append(extract_features(eeg_path, offset))
         if (i + 1) % 200 == 0:
@@ -90,8 +104,8 @@ def main():
 
     # Soft targets are the normalized expert votes; the simple RF fits hard labels.
     votes = train[TARGETS].to_numpy(dtype=float)
-    soft_targets = votes / votes.sum(axis=1, keepdims=True)
-    hard_targets = np.argmax(soft_targets, axis=1)
+    soft_targets = votes / votes.sum(axis=1, keepdims=True)        #volledige verdeling van de expertstemmen
+    hard_targets = np.argmax(soft_targets, axis=1)                 #zoekt de positie van de grootste waarde
 
     print("Extracting training EEG features...")
     X = build_features(train, args.data_dir / "train_eegs", is_train=True)
