@@ -53,15 +53,15 @@ def extract_features(eeg_path, offset_seconds=0.0):
                 #np.ptp is piek tot piek amplitude 
 
         ###NIEUWE HJORTH FEATURES
-        #activity= np.var(x)
-        #dx=np.diff(x)
-        #ddx=np.diff(dx)
-        #var_dx=np.var(dx)
-        #var_ddx=np.var(ddx)
-        #mobility = ( np.sqrt(var_dx / activity) if activity > 0 else 0)
-        #mobility_derivative = (np.sqrt(var_ddx / var_dx) if var_dx > 0 else 0)
-        #complexity = (mobility_derivative / mobility if mobility > 0 else 0)
-        #features.extend([activity,mobility,complexity])
+        activity= np.var(x)
+        dx=np.diff(x)
+        ddx=np.diff(dx)
+        var_dx=np.var(dx)
+        var_ddx=np.var(ddx)
+        mobility = ( np.sqrt(var_dx / activity) if activity > 0 else 0)
+        mobility_derivative = (np.sqrt(var_ddx / var_dx) if var_dx > 0 else 0)
+        complexity = (mobility_derivative / mobility if mobility > 0 else 0)
+        features.extend([activity,mobility,complexity])
 
         ###NIEUWE RELATIVE BAND POWER TOEGEVOEGD
         frequencies, psd = welch(x, fs=FS, nperseg=min(512, len(x)))
