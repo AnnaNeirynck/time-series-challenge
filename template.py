@@ -15,12 +15,13 @@ from scipy.signal import welch
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, log_loss
 from sklearn.model_selection import GroupShuffleSplit
+from scipy.stats import kurtosis
 
 TARGETS = ["seizure_vote", "lpd_vote", "gpd_vote", "lrda_vote", "grda_vote", "other_vote"]
 FS = 200
 # A small, interpretable subset of EEG electrodes (not the EKG channel).
 CHANNELS = ["Fp1", "F7", "T3", "T5", "O1", "Fp2", "F8", "T4", "T6", "O2"]
-BANDS = [(0.5, 4), (4, 8), (8, 13), (13, 30)]
+BANDS = [ (0.5, 4),(4, 8), (8, 13), (13,30)]
 
 
 def extract_features(eeg_path, offset_seconds=0.0):
@@ -49,7 +50,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
             fill = np.nanmedian(x[np.isfinite(x)])
             x = np.where(np.isfinite(x), x, fill)
         x = np.clip(x, -1000, 1000)
-        features.extend([np.mean(x), np.std(x), np.ptp(x)])
+        features.extend([ np.mean(x), np.std(x)])
                 #np.ptp is piek tot piek amplitude 
 
         ###NIEUWE HJORTH FEATURES
@@ -63,7 +64,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
         complexity = (mobility_derivative / mobility if mobility > 0 else 0)
         features.extend([activity,mobility,complexity])
 
-        ###NIEUWE RELATIVE BAND POWER TOEGEVOEGD
+        ###NIEUWE RELATIVE BAND POWER 
         frequencies, psd = welch(x, fs=FS, nperseg=min(512, len(x)))
         total_mask = (frequencies >= 0.5) & (frequencies < 30)
         total_power = np.sum(psd[total_mask])
@@ -77,7 +78,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
             relative_power = ( band_power / total_power if total_power > 0 else 0)
             features.append(relative_power)
             
-
+            
         #NIEUWE SPECTRAL ENTROPY
         if total_power > 0:
           normalized_psd = psd[total_mask] / total_power
@@ -86,6 +87,13 @@ def extract_features(eeg_path, offset_seconds=0.0):
         else:
           spectral_entropy = 0
         features.append(spectral_entropy)
+
+        #NIEUWE KURTOSIS
+        if np.std(x) < 1e-6:
+            kurt = 0.0
+        else:
+            kurt = kurtosis(x)
+        features.append(kurt)
 
             #features.append(np.log1p(np.sum(psd[mask])))          
     return np.asarray(features, dtype=np.float32)
@@ -124,7 +132,7 @@ def main():
     # Keep one annotated window per EEG for a fast, simple starting point.
     train = train.drop_duplicates(subset="eeg_id").reset_index(drop=True)
     if args.max_train > 0 and len(train) > args.max_train:
-        train = train.sample(n=args.max_train, random_state=42).reset_index(drop=True)
+        train = train.sample(n=args.max_train, random_state=456).reset_index(drop=True)
 
     # Soft targets are the normalized expert votes; the simple RF fits hard labels.
     votes = train[TARGETS].to_numpy(dtype=float)
@@ -135,13 +143,15 @@ def main():
     X = build_features(train, args.data_dir / "train_eegs", is_train=True)
 
     # Split by patient, not EEG window, to prevent patient-level leakage.
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=456)
     idx_train, idx_val = next(splitter.split(X, hard_targets, groups=train["patient_id"]))
 
     model = RandomForestClassifier(
-        n_estimators=150, min_samples_leaf=2, random_state=42, n_jobs=-1
+        n_estimators=150, min_samples_leaf=2, random_state=456, n_jobs=-1
     )
+
     model.fit(X[idx_train], hard_targets[idx_train])
+
     val_prob = align_probabilities(model, X[idx_val])
     val_pred = np.argmax(val_prob, axis=1)
     print(f"Validation accuracy (consensus/majority class): {accuracy_score(hard_targets[idx_val], val_pred):.4f}")
