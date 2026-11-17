@@ -20,6 +20,7 @@ from scipy.stats import kurtosis
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.neural_network import MLPClassifier
+from xgboost import XGBClassifier
 
 TARGETS = ["seizure_vote", "lpd_vote", "gpd_vote", "lrda_vote", "grda_vote", "other_vote"]
 FS = 200
@@ -164,21 +165,26 @@ def main():
 
    # val_prob = align_probabilities(model, X[idx_val])
 
-# Logistic Regression
+    # XGBoost
+    model = XGBClassifier(
+        n_estimators=300,
+        max_depth=5,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        objective="multi:softprob",
+        num_class=6,
+        eval_metric="mlogloss",
+        random_state=42,
+        n_jobs=-1
+    )
 
-    scaler = StandardScaler()
+    model.fit(
+        X[idx_train],
+        hard_targets[idx_train]
+    )
 
-    X_train_scaled = scaler.fit_transform(X[idx_train])
-    X_val_scaled = scaler.transform(X[idx_val])
-
-    model = LogisticRegression(
-    max_iter=1000,
-    random_state=42
-)
-
-    model.fit(X_train_scaled, hard_targets[idx_train])
-
-    val_prob = model.predict_proba(X_val_scaled)
+    val_prob = align_probabilities(model, X[idx_val])
 
 # Clip and normalize probabilities
     val_prob = np.clip(val_prob, 1e-8, None)
@@ -200,26 +206,13 @@ def main():
         #X_test = build_features(test, args.data_dir / "test_eegs", is_train=False)
         #pred = align_probabilities(model, X_test)
 
-        
-# Scale all training features
-        X_scaled = scaler.fit_transform(X)
-
-# Train on all training data
-        model.fit(X_scaled, hard_targets)
+        model.fit(X, hard_targets)
         print("Classes:", model.classes_)
         test = pd.read_csv(args.data_dir / "test.csv")
         print("Extracting test EEG features...")
         X_test = build_features(test, args.data_dir / "test_eegs", is_train=False)
-
-# Apply the same scaler to test data
-        X_test_scaled = scaler.transform(X_test)
-
-# Predict probabilities
-        pred = model.predict_proba(X_test_scaled)
-        pred = np.clip(pred, 1e-8, None)
-        pred = pred / pred.sum(axis=1, keepdims=True)
-
-
+        # Predict probabilities
+        pred = align_probabilities(model, X_test)
         submission = pd.DataFrame(pred, columns=TARGETS)
         submission.insert(0, "eeg_id", test["eeg_id"].to_numpy())
         submission.to_csv("submission.csv", index=False)
