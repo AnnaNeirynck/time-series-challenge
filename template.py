@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pywt
 from scipy.signal import welch
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, log_loss
@@ -22,6 +23,13 @@ FS = 200
 # A small, interpretable subset of EEG electrodes (not the EKG channel).
 CHANNELS = ["Fp1", "F7", "T3", "T5", "O1", "Fp2", "F8", "T4", "T6", "O2"]
 BANDS = [ (0.5, 4),(4, 8), (8, 13), (13,30)]
+CWT_WAVELET = "cmor1.5-1.0"
+
+CWT_FREQS = np.geomspace(0.5, 30, 32)
+
+CWT_SCALES = pywt.frequency2scale(
+    CWT_WAVELET,
+    CWT_FREQS / FS)
 
 
 def extract_features(eeg_path, offset_seconds=0.0):
@@ -77,7 +85,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
             # Relative band power (new feature)
             relative_power = ( band_power / total_power if total_power > 0 else 0)
             features.append(relative_power)
-            
+        
             
         #NIEUWE SPECTRAL ENTROPY
         if total_power > 0:
@@ -132,7 +140,7 @@ def main():
     # Keep one annotated window per EEG for a fast, simple starting point.
     train = train.drop_duplicates(subset="eeg_id").reset_index(drop=True)
     if args.max_train > 0 and len(train) > args.max_train:
-        train = train.sample(n=args.max_train, random_state=456).reset_index(drop=True)
+        train = train.sample(n=args.max_train, random_state=789).reset_index(drop=True)
 
     # Soft targets are the normalized expert votes; the simple RF fits hard labels.
     votes = train[TARGETS].to_numpy(dtype=float)
@@ -143,11 +151,11 @@ def main():
     X = build_features(train, args.data_dir / "train_eegs", is_train=True)
 
     # Split by patient, not EEG window, to prevent patient-level leakage.
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=456)
+    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=789)
     idx_train, idx_val = next(splitter.split(X, hard_targets, groups=train["patient_id"]))
 
     model = RandomForestClassifier(
-        n_estimators=150, min_samples_leaf=2, random_state=456, n_jobs=-1
+        n_estimators=150, min_samples_leaf=2, random_state=789, n_jobs=-1
     )
 
     model.fit(X[idx_train], hard_targets[idx_train])
