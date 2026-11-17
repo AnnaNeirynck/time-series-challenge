@@ -17,6 +17,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, log_loss
 from sklearn.model_selection import GroupShuffleSplit
 from scipy.stats import kurtosis
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.neural_network import MLPClassifier
 
 TARGETS = ["seizure_vote", "lpd_vote", "gpd_vote", "lrda_vote", "grda_vote", "other_vote"]
 FS = 200
@@ -140,7 +143,7 @@ def main():
     # Keep one annotated window per EEG for a fast, simple starting point.
     train = train.drop_duplicates(subset="eeg_id").reset_index(drop=True)
     if args.max_train > 0 and len(train) > args.max_train:
-        train = train.sample(n=args.max_train, random_state=789).reset_index(drop=True)
+        train = train.sample(n=args.max_train, random_state=42).reset_index(drop=True)
 
     # Soft targets are the normalized expert votes; the simple RF fits hard labels.
     votes = train[TARGETS].to_numpy(dtype=float)
@@ -151,16 +154,35 @@ def main():
     X = build_features(train, args.data_dir / "train_eegs", is_train=True)
 
     # Split by patient, not EEG window, to prevent patient-level leakage.
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=789)
+    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
     idx_train, idx_val = next(splitter.split(X, hard_targets, groups=train["patient_id"]))
 
-    model = RandomForestClassifier(
-        n_estimators=150, min_samples_leaf=2, random_state=789, n_jobs=-1
-    )
+   # model = RandomForestClassifier(
+   #     n_estimators=150, min_samples_leaf=2, random_state=42, n_jobs=-1)
 
-    model.fit(X[idx_train], hard_targets[idx_train])
+   # model.fit(X[idx_train], hard_targets[idx_train])
 
-    val_prob = align_probabilities(model, X[idx_val])
+   # val_prob = align_probabilities(model, X[idx_val])
+
+# Scale the features
+    scaler = StandardScaler()
+
+    X_train_scaled = scaler.fit_transform(X[idx_train])
+    X_val_scaled = scaler.transform(X[idx_val])
+
+# MLP Classifier
+    model = MLPClassifier(hidden_layer_sizes=(64, 32),activation="relu",solver="adam",alpha=0.001,learning_rate_init=0.001,max_iter=300,early_stopping=True, random_state=42
+)
+
+    model.fit(X_train_scaled, hard_targets[idx_train])
+
+# Predict probabilities
+    val_prob = model.predict_proba(X_val_scaled)
+
+# Avoid zero probabilities
+    val_prob = np.clip(val_prob, 1e-8, None)
+    val_prob = val_prob / val_prob.sum(axis=1, keepdims=True)
+
     val_pred = np.argmax(val_prob, axis=1)
     print(f"Validation accuracy (consensus/majority class): {accuracy_score(hard_targets[idx_val], val_pred):.4f}")
     print(f"Validation log loss (hard labels): {log_loss(hard_targets[idx_val], val_prob, labels=np.arange(6)):.4f}")
@@ -171,11 +193,32 @@ def main():
 
     if args.submission:
         print("Refitting on all selected training recordings...")
-        model.fit(X, hard_targets)
+        #model.fit(X, hard_targets)
+        #test = pd.read_csv(args.data_dir / "test.csv")
+        #print("Extracting test EEG features...")
+        #X_test = build_features(test, args.data_dir / "test_eegs", is_train=False)
+        #pred = align_probabilities(model, X_test)
+
+        
+# Scale all training features
+        X_scaled = scaler.fit_transform(X)
+
+# Train on all training data
+        model.fit(X_scaled, hard_targets)
+        print("Classes:", model.classes_)
         test = pd.read_csv(args.data_dir / "test.csv")
         print("Extracting test EEG features...")
         X_test = build_features(test, args.data_dir / "test_eegs", is_train=False)
-        pred = align_probabilities(model, X_test)
+
+# Apply the same scaler to test data
+        X_test_scaled = scaler.transform(X_test)
+
+# Predict probabilities
+        pred = model.predict_proba(X_test_scaled)
+        pred = np.clip(pred, 1e-8, None)
+        pred = pred / pred.sum(axis=1, keepdims=True)
+
+
         submission = pd.DataFrame(pred, columns=TARGETS)
         submission.insert(0, "eeg_id", test["eeg_id"].to_numpy())
         submission.to_csv("submission.csv", index=False)
