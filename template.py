@@ -164,22 +164,23 @@ def main():
 
    # val_prob = align_probabilities(model, X[idx_val])
 
-# Scale the features
+# Logistic Regression
+
     scaler = StandardScaler()
 
     X_train_scaled = scaler.fit_transform(X[idx_train])
     X_val_scaled = scaler.transform(X[idx_val])
 
-# MLP Classifier
-    model = MLPClassifier(hidden_layer_sizes=(64, 32),activation="relu",solver="adam",alpha=0.001,learning_rate_init=0.001,max_iter=300,early_stopping=True, random_state=42
+    model = LogisticRegression(
+    max_iter=1000,
+    random_state=42
 )
 
     model.fit(X_train_scaled, hard_targets[idx_train])
 
-# Predict probabilities
     val_prob = model.predict_proba(X_val_scaled)
 
-# Avoid zero probabilities
+# Clip and normalize probabilities
     val_prob = np.clip(val_prob, 1e-8, None)
     val_prob = val_prob / val_prob.sum(axis=1, keepdims=True)
 
