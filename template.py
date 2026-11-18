@@ -25,6 +25,8 @@ FS = 200
 # A small, interpretable subset of EEG electrodes (not the EKG channel).
 CHANNELS = ["Fp1", "F7", "T3", "T5", "O1", "Fp2", "F8", "T4", "T6", "O2"]
 BANDS = [ (0.5, 4),(4, 8), (8, 13), (13,30)]
+from scipy.signal import butter, sosfiltfilt
+SOS = butter(4, [0.5, 40], btype="band", fs=FS, output="sos")
 
 def extract_features(eeg_path, offset_seconds=0.0):
     """Extract features from the central 10 s of a 50 s annotated segment.
@@ -52,6 +54,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
             fill = np.nanmedian(x[np.isfinite(x)])
             x = np.where(np.isfinite(x), x, fill)
         x = np.clip(x, -1000, 1000)
+        x = sosfiltfilt(SOS, x)
         features.extend([ np.std(x),np.sum(np.abs(np.diff(x)))])
 
         ###NIEUWE HJORTH FEATURES
