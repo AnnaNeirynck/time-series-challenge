@@ -28,6 +28,25 @@ BANDS = [ (0.5, 4),(4, 8), (8, 13), (13,30)]
 from scipy.signal import butter, sosfiltfilt
 SOS = butter(4, [0.5, 40], btype="band", fs=FS, output="sos")
 
+def katz_fd(x):
+    dists = np.abs(np.diff(x))
+    length = dists.sum()
+    if length <= 0:
+        return 0.0
+    n = np.log10(length / dists.mean())            # log10 van het aantal stappen
+    d = np.max(np.abs(x[1:] - x[0]))               # grootste afstand tot het eerste punt
+    if d <= 0:
+        return 0.0
+    return n / (n + np.log10(d / length))
+
+
+def petrosian_fd(x):
+    dx = np.diff(x)
+    n_delta = np.sum(dx[1:] * dx[:-1] < 0)         # aantal tekenwisselingen in de afgeleide
+    n = len(x)
+    return np.log10(n) / (np.log10(n) + np.log10(n / (n + 0.4 * n_delta)))
+
+
 def extract_features(eeg_path, offset_seconds=0.0):
     """Extract features from the central 10 s of a 50 s annotated segment.
 
@@ -107,6 +126,10 @@ def extract_features(eeg_path, offset_seconds=0.0):
         acf = acf / (acf[0] + 1e-12)
         features.append(acf[int(0.3 * FS):int(3 * FS)].max())
 
+                ###FRACTAL DIMENSION
+        features.append(katz_fd(x))
+        features.append(petrosian_fd(x))
+
             #features.append(np.log1p(np.sum(psd[mask])))   
     ###LINKS/RECHTS ASYMMETRIE 
     band_logs = np.array(band_logs)             # (kanalen, 4)
@@ -163,12 +186,12 @@ def main():
     splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
     idx_train, idx_val = next(splitter.split(X, hard_targets, groups=train["patient_id"]))
 
-   # model = RandomForestClassifier(
-   #     n_estimators=150, min_samples_leaf=2, random_state=42, n_jobs=-1)
+    #model = RandomForestClassifier(
+        #n_estimators=150, min_samples_leaf=2, random_state=42, n_jobs=-1)
 
-   # model.fit(X[idx_train], hard_targets[idx_train])
+    #model.fit(X[idx_train], hard_targets[idx_train])
 
-   # val_prob = align_probabilities(model, X[idx_val])
+    #val_prob = align_probabilities(model, X[idx_val])
 
     # XGBoost
     model = XGBClassifier(
@@ -192,7 +215,7 @@ def main():
     w_rep = soft_targets[idx_train].T.reshape(-1)
     mask = w_rep > 0
     model.fit(X_rep[mask], y_rep[mask], sample_weight=w_rep[mask])
-    val_prob = align_probabilities(model, X[idx_val])
+    val_prob= align_probabilities(model, X[idx_val])
 
 # Clip and normalize probabilities
     val_prob = np.clip(val_prob, 1e-8, None)
@@ -205,6 +228,7 @@ def main():
     y_true = np.clip(soft_targets[idx_val], 1e-12, 1.0)
     kl = np.mean(np.sum(y_true * (np.log(y_true) - np.log(val_prob)), axis=1))
     print(f"Validation KL divergence (soft expert votes): {kl:.4f}")
+
 
     if args.submission:
         print("Refitting on all selected training recordings...")
