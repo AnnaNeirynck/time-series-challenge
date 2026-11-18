@@ -48,6 +48,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
 
     features = []
     band_logs = []
+    channel_signals = []
     for j in range(len(channels)):    #ieder kanaal afzonderlijk afgaan
         x = segment[:, j]
         if not np.isfinite(x).any():
@@ -57,6 +58,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
             x = np.where(np.isfinite(x), x, fill)
         x = np.clip(x, -1000, 1000)
         x = sosfiltfilt(SOS, x)
+        channel_signals.append(x)
         features.extend([ np.std(x),np.sum(np.abs(np.diff(x)))])
 
         ###NIEUWE HJORTH FEATURES
@@ -85,15 +87,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
             relative_power = ( band_power / total_power if total_power > 0 else 0)
             features.append(relative_power)
         band_logs.append([np.log(np.sum(psd[(frequencies >= lo) & (frequencies < hi)]) + 1e-12) for lo, hi in BANDS])
-        ###SPECTRAL CENTROID EN BANDWIDTH
-        f_sel = frequencies[total_mask]
-        p_sel = psd[total_mask]
-        if total_power > 0:
-            centroid = np.sum(f_sel * p_sel) / np.sum(p_sel)
-            bandwidth = np.sqrt(np.sum(((f_sel - centroid) ** 2) * p_sel) / np.sum(p_sel))
-        else:
-            centroid, bandwidth = 0.0, 0.0
-        features.extend([centroid, bandwidth])
+
             
         #NIEUWE SPECTRAL ENTROPY
         if total_power > 0:
@@ -123,6 +117,22 @@ def extract_features(eeg_path, offset_seconds=0.0):
     n_half = len(channels) // 2                 # CHANNELS: eerste helft links, tweede helft rechts
     asym = band_logs[:n_half] - band_logs[n_half:]
     features.extend(asym.ravel())    
+
+    ###RUIMTELIJKE FEATURES
+    sig = np.array(channel_signals)                          
+
+    # 1. Mate van asymmetrie (zonder teken)
+    features.extend(np.abs(asym).ravel())                    
+
+    # 2. Correlatie tussen linker- en rechterpartner, 3. globale synchronie
+    lr_corr = [np.corrcoef(sig[i], sig[i + n_half])[0, 1] for i in range(n_half)]
+    features.extend(np.nan_to_num(lr_corr))                  
+    corr = np.nan_to_num(np.corrcoef(sig))
+    features.append(corr[np.triu_indices(len(sig), k=1)].mean())  
+
+    # 4. Ruimtelijke spreiding van het bandvermogen
+    features.extend(band_logs.std(axis=0))                   
+
     return np.asarray(features, dtype=np.float32)
 
 
