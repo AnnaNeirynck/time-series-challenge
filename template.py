@@ -28,24 +28,6 @@ BANDS = [ (0.5, 4),(4, 8), (8, 13), (13,30)]
 from scipy.signal import butter, sosfiltfilt
 SOS = butter(4, [0.5, 40], btype="band", fs=FS, output="sos")
 
-def katz_fd(x):
-    dists = np.abs(np.diff(x))
-    length = dists.sum()
-    if length <= 0:
-        return 0.0
-    n = np.log10(length / dists.mean())            # log10 van het aantal stappen
-    d = np.max(np.abs(x[1:] - x[0]))               # grootste afstand tot het eerste punt
-    if d <= 0:
-        return 0.0
-    return n / (n + np.log10(d / length))
-
-
-def petrosian_fd(x):
-    dx = np.diff(x)
-    n_delta = np.sum(dx[1:] * dx[:-1] < 0)         # aantal tekenwisselingen in de afgeleide
-    n = len(x)
-    return np.log10(n) / (np.log10(n) + np.log10(n / (n + 0.4 * n_delta)))
-
 
 def extract_features(eeg_path, offset_seconds=0.0):
     """Extract features from the central 10 s of a 50 s annotated segment.
@@ -103,6 +85,15 @@ def extract_features(eeg_path, offset_seconds=0.0):
             relative_power = ( band_power / total_power if total_power > 0 else 0)
             features.append(relative_power)
         band_logs.append([np.log(np.sum(psd[(frequencies >= lo) & (frequencies < hi)]) + 1e-12) for lo, hi in BANDS])
+        ###SPECTRAL CENTROID EN BANDWIDTH
+        f_sel = frequencies[total_mask]
+        p_sel = psd[total_mask]
+        if total_power > 0:
+            centroid = np.sum(f_sel * p_sel) / np.sum(p_sel)
+            bandwidth = np.sqrt(np.sum(((f_sel - centroid) ** 2) * p_sel) / np.sum(p_sel))
+        else:
+            centroid, bandwidth = 0.0, 0.0
+        features.extend([centroid, bandwidth])
             
         #NIEUWE SPECTRAL ENTROPY
         if total_power > 0:
@@ -126,10 +117,6 @@ def extract_features(eeg_path, offset_seconds=0.0):
         acf = acf / (acf[0] + 1e-12)
         features.append(acf[int(0.3 * FS):int(3 * FS)].max())
 
-                ###FRACTAL DIMENSION
-        features.append(katz_fd(x))
-        features.append(petrosian_fd(x))
-
             #features.append(np.log1p(np.sum(psd[mask])))   
     ###LINKS/RECHTS ASYMMETRIE 
     band_logs = np.array(band_logs)             # (kanalen, 4)
@@ -139,10 +126,10 @@ def extract_features(eeg_path, offset_seconds=0.0):
     return np.asarray(features, dtype=np.float32)
 
 
-def build_features(metadata, eeg_folder, is_train=True):           #1EEG fragment omgezet naar 70 features
-    X = []                                                         #matrix --> rij is een trainingsvoorbeeld   
-    for i, row in enumerate(metadata.itertuples(index=False)):     #           kolom is een feature
-        eeg_path = eeg_folder / f"{row.eeg_id}.parquet"            # = input voor ons model 
+def build_features(metadata, eeg_folder, is_train=True):          
+    X = []                                                         
+    for i, row in enumerate(metadata.itertuples(index=False)):     
+        eeg_path = eeg_folder / f"{row.eeg_id}.parquet"            
         offset = row.eeg_label_offset_seconds if is_train else 0.0
         X.append(extract_features(eeg_path, offset))
         if (i + 1) % 200 == 0:
