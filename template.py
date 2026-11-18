@@ -52,8 +52,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
             fill = np.nanmedian(x[np.isfinite(x)])
             x = np.where(np.isfinite(x), x, fill)
         x = np.clip(x, -1000, 1000)
-        features.extend([ np.mean(x), np.std(x)])
-                #np.ptp is piek tot piek amplitude 
+        features.extend([ np.std(x),np.sum(np.abs(np.diff(x)))])
 
         ###NIEUWE HJORTH FEATURES
         activity= np.var(x)
