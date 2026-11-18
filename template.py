@@ -11,30 +11,20 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pywt
+
 from scipy.signal import welch
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, log_loss
 from sklearn.model_selection import GroupShuffleSplit
 from scipy.stats import kurtosis
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
+
 
 TARGETS = ["seizure_vote", "lpd_vote", "gpd_vote", "lrda_vote", "grda_vote", "other_vote"]
 FS = 200
 # A small, interpretable subset of EEG electrodes (not the EKG channel).
 CHANNELS = ["Fp1", "F7", "T3", "T5", "O1", "Fp2", "F8", "T4", "T6", "O2"]
 BANDS = [ (0.5, 4),(4, 8), (8, 13), (13,30)]
-CWT_WAVELET = "cmor1.5-1.0"
-
-CWT_FREQS = np.geomspace(0.5, 30, 32)
-
-CWT_SCALES = pywt.frequency2scale(
-    CWT_WAVELET,
-    CWT_FREQS / FS)
-
 
 def extract_features(eeg_path, offset_seconds=0.0):
     """Extract features from the central 10 s of a 50 s annotated segment.
@@ -179,11 +169,14 @@ def main():
         n_jobs=-1
     )
 
-    model.fit(
-        X[idx_train],
-        hard_targets[idx_train]
-    )
-
+    #model.fit(X[idx_train],hard_targets[idx_train])
+    #training on soft targets 
+    n = len(idx_train)
+    X_rep = np.vstack([X[idx_train]] * 6)
+    y_rep = np.repeat(np.arange(6), n)
+    w_rep = soft_targets[idx_train].T.reshape(-1)
+    mask = w_rep > 0
+    model.fit(X_rep[mask], y_rep[mask], sample_weight=w_rep[mask])
     val_prob = align_probabilities(model, X[idx_val])
 
 # Clip and normalize probabilities
@@ -205,8 +198,13 @@ def main():
         #print("Extracting test EEG features...")
         #X_test = build_features(test, args.data_dir / "test_eegs", is_train=False)
         #pred = align_probabilities(model, X_test)
-
-        model.fit(X, hard_targets)
+        
+        n = len(X)
+        X_rep = np.vstack([X] * 6)
+        y_rep = np.repeat(np.arange(6), n)
+        w_rep = soft_targets.T.reshape(-1)
+        mask = w_rep > 0
+        model.fit(X_rep[mask], y_rep[mask], sample_weight=w_rep[mask])
         print("Classes:", model.classes_)
         test = pd.read_csv(args.data_dir / "test.csv")
         print("Extracting test EEG features...")
