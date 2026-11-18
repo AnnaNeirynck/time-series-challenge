@@ -46,6 +46,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
     segment = frame.iloc[start:end][channels].to_numpy(dtype=np.float64)
 
     features = []
+    band_logs = []
     for j in range(len(channels)):    #ieder kanaal afzonderlijk afgaan
         x = segment[:, j]
         if not np.isfinite(x).any():
@@ -73,6 +74,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
         total_mask = (frequencies >= 0.5) & (frequencies < 30)
         total_power = np.sum(psd[total_mask])
         for low, high in BANDS:
+            
             mask = (frequencies >= low) & (frequencies < high)
             # Absolute band power (existing feature)
             band_power = np.sum(psd[mask])
@@ -81,7 +83,7 @@ def extract_features(eeg_path, offset_seconds=0.0):
             # Relative band power (new feature)
             relative_power = ( band_power / total_power if total_power > 0 else 0)
             features.append(relative_power)
-        
+        band_logs.append([np.log(np.sum(psd[(frequencies >= lo) & (frequencies < hi)]) + 1e-12) for lo, hi in BANDS])
             
         #NIEUWE SPECTRAL ENTROPY
         if total_power > 0:
@@ -99,7 +101,18 @@ def extract_features(eeg_path, offset_seconds=0.0):
             kurt = kurtosis(x)
         features.append(kurt)
 
-            #features.append(np.log1p(np.sum(psd[mask])))          
+        ###AUTOCORRELATIE     
+        xc = x - x.mean()
+        acf = np.fft.irfft(np.abs(np.fft.rfft(xc, 2 * len(xc))) ** 2)[:len(xc)]
+        acf = acf / (acf[0] + 1e-12)
+        features.append(acf[int(0.3 * FS):int(3 * FS)].max())
+
+            #features.append(np.log1p(np.sum(psd[mask])))   
+    ###LINKS/RECHTS ASYMMETRIE 
+    band_logs = np.array(band_logs)             # (kanalen, 4)
+    n_half = len(channels) // 2                 # CHANNELS: eerste helft links, tweede helft rechts
+    asym = band_logs[:n_half] - band_logs[n_half:]
+    features.extend(asym.ravel())    
     return np.asarray(features, dtype=np.float32)
 
 
