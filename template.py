@@ -12,12 +12,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from scipy.signal import welch
+from scipy.signal import welch, find_peaks
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, log_loss
 from sklearn.model_selection import GroupShuffleSplit
 from scipy.stats import kurtosis
 from xgboost import XGBClassifier
+
 
 
 TARGETS = ["seizure_vote", "lpd_vote", "gpd_vote", "lrda_vote", "grda_vote", "other_vote"]
@@ -111,6 +112,15 @@ def extract_features(eeg_path, offset_seconds=0.0):
         acf = acf / (acf[0] + 1e-12)
         features.append(acf[int(0.3 * FS):int(3 * FS)].max())
 
+                ###PIEKEN: AANTAL EN REGELMAAT
+        #pk, _ = find_peaks(x, prominence=np.std(x))
+        #features.append(len(pk) / 10.0)                          # pieken per seconde
+        #if len(pk) > 2:
+        #    ipi = np.diff(pk) / FS                               # tijd tussen pieken
+        #    features.append(ipi.std() / (ipi.mean() + 1e-12))    # lage waarde = regelmatig
+        #else:
+        #    features.append(0.0)
+
             #features.append(np.log1p(np.sum(psd[mask])))   
     ###LINKS/RECHTS ASYMMETRIE 
     band_logs = np.array(band_logs)             # (kanalen, 4)
@@ -169,7 +179,7 @@ def main():
     # Keep one annotated window per EEG for a fast, simple starting point.
     train = train.drop_duplicates(subset="eeg_id").reset_index(drop=True)
     if args.max_train > 0 and len(train) > args.max_train:
-        train = train.sample(n=args.max_train, random_state=42).reset_index(drop=True)
+        train = train.sample(n=args.max_train, random_state=123).reset_index(drop=True)
 
     # Soft targets are the normalized expert votes; the simple RF fits hard labels.
     votes = train[TARGETS].to_numpy(dtype=float)
@@ -180,7 +190,7 @@ def main():
     X = build_features(train, args.data_dir / "train_eegs", is_train=True)
 
     # Split by patient, not EEG window, to prevent patient-level leakage.
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=123)
     idx_train, idx_val = next(splitter.split(X, hard_targets, groups=train["patient_id"]))
 
     #model = RandomForestClassifier(
@@ -200,7 +210,7 @@ def main():
         objective="multi:softprob",
         num_class=6,
         eval_metric="mlogloss",
-        random_state=42,
+        random_state=123,
         n_jobs=-1
     )
 
@@ -225,7 +235,6 @@ def main():
     y_true = np.clip(soft_targets[idx_val], 1e-12, 1.0)
     kl = np.mean(np.sum(y_true * (np.log(y_true) - np.log(val_prob)), axis=1))
     print(f"Validation KL divergence (soft expert votes): {kl:.4f}")
-
 
     if args.submission:
         print("Refitting on all selected training recordings...")
